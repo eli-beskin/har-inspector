@@ -1,0 +1,6 @@
+[project]
+name = "har-inspector"
+version = "0.1.0"
+description = "CLI that analyzes browser HAR files and prints a diagnostic report"
+requires-python = ">=3.11"
+dependencies = []

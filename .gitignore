@@ -1,0 +1,5 @@
+samples/
+*.har
+!tests/fixtures/*.har
+__pycache__/
+.venv/
