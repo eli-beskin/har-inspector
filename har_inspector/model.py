@@ -38,17 +38,30 @@ class Entry:
     resource_type: str | None
     response_headers: list[tuple[str, str]] = field(default_factory=list)
     timings: Timings = field(default_factory=Timings)
+    request_headers: list[tuple[str, str]] = field(default_factory=list)
+    request_headers_size: int | None = None  # None: unknown (Chrome often writes -1)
+    redirect_url: str = ""
+    initiator_type: str | None = None  # Chrome's _initiator.type, e.g. "preflight"
 
     @property
     def finished(self) -> datetime:
         return self.started + timedelta(milliseconds=self.time_ms)
 
     def header(self, name: str) -> str | None:
-        name = name.lower()
-        for key, value in self.response_headers:
-            if key.lower() == name:
-                return value
-        return None
+        """Response header value (case-insensitive name), or None."""
+        return _find_header(self.response_headers, name)
+
+    def request_header(self, name: str) -> str | None:
+        return _find_header(self.request_headers, name)
+
+
+def _find_header(headers: list[tuple[str, str]], name: str) -> str | None:
+    # HTTP/2 exports use lowercase names, HTTP/1.1 ones canonical case.
+    name = name.lower()
+    for key, value in headers:
+        if key.lower() == name:
+            return value
+    return None
 
 
 @dataclass(frozen=True)

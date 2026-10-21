@@ -53,11 +53,23 @@ def _entry(index: int, raw: dict) -> Entry:
         transfer_size=_transfer_size(response),
         error=response.get("_error") or None,
         resource_type=raw.get("_resourceType"),
-        response_headers=[
-            (h.get("name", ""), h.get("value", "")) for h in response.get("headers") or []
-        ],
+        response_headers=_headers(response),
         timings=_timings(raw.get("timings") or {}),
+        request_headers=_headers(request),
+        request_headers_size=_non_negative(request.get("headersSize")),
+        redirect_url=response.get("redirectURL") or "",
+        initiator_type=(raw.get("_initiator") or {}).get("type"),
     )
+
+
+def _headers(message: dict) -> list[tuple[str, str]]:
+    return [(h.get("name", ""), h.get("value", "")) for h in message.get("headers") or []]
+
+
+def _non_negative(value) -> int | None:
+    if isinstance(value, (int, float)) and value >= 0:
+        return int(value)
+    return None
 
 
 def _timings(raw: dict) -> Timings:

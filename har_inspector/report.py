@@ -1,6 +1,7 @@
 """Render an Analysis as a plain-text report."""
 
 import os
+import textwrap
 from datetime import datetime
 
 from har_inspector.analysis import Analysis
@@ -8,12 +9,15 @@ from har_inspector.classify import status_class
 from har_inspector.model import PHASES
 
 URL_WIDTH = 80
+MAX_EVIDENCE = 5  # per finding; the rest is summarized as "... and N more"
+TEXT_WIDTH = 100
 
 
 def render(a: Analysis) -> str:
     sections = [
         _header(a),
         _summary(a),
+        _findings(a),
         _failed(a),
         _slowest(a),
         _internal(a),
@@ -49,6 +53,31 @@ def _summary(a: Analysis) -> str:
         f"  Capture span:  {span}",
         f"  By status:     {classes}",
     ])
+
+
+def _findings(a: Analysis) -> str:
+    if not a.findings:
+        return "FINDINGS\n  none"
+    pad = " " * 11
+    blocks = []
+    for f in a.findings:
+        lines = [_wrap(f.title, f"  {f.severity.upper():<8} ", pad)]
+        evidence = f.evidence
+        hidden = len(evidence) - MAX_EVIDENCE
+        # Keep the last item: for a redirect chain it is where the chain ends.
+        # Hiding a single line behind a "... and 1 more" line saves nothing.
+        if hidden > 1:
+            evidence = evidence[: MAX_EVIDENCE - 1] + [None] + evidence[-1:]
+        for ev in evidence:
+            if ev is None:
+                lines.append(f"{pad}... and {hidden} more")
+                continue
+            line = f"{pad}#{ev.index:<4} {ev.method:<7} {ev.status:<4} {_truncate(ev.url)}"
+            lines.append(f"{line}  {ev.note}" if ev.note else line)
+        if f.next_step:
+            lines.append(_wrap(f.next_step, f"{pad}Next step: ", pad + " " * 11))
+        blocks.append("\n".join(lines))
+    return "FINDINGS\n" + "\n\n".join(blocks)
 
 
 def _failed(a: Analysis) -> str:
@@ -99,6 +128,14 @@ def _internal(a: Analysis) -> str:
         lines.append(f"  {e.status}  {_truncate(f'{e.method} {e.url}')}")
         lines.append(f"       reason: {reason}")
     return "\n".join(lines)
+
+
+def _wrap(text: str, first: str, rest: str) -> str:
+    # Never split URLs or header names like Access-Control-Allow-Origin.
+    return textwrap.fill(
+        text, TEXT_WIDTH, initial_indent=first, subsequent_indent=rest,
+        break_long_words=False, break_on_hyphens=False,
+    )
 
 
 def _ms(value: float | None) -> str:

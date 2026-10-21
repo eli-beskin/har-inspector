@@ -72,3 +72,28 @@ def test_bad_input_raises_har_error(tmp_path, content, message):
 def test_missing_file_raises_har_error(tmp_path):
     with pytest.raises(HarError, match="file not found"):
         load(str(tmp_path / "nope.har"))
+
+
+def test_request_fields(load_fixture):
+    cors_entries = load_fixture("cors.har").entries
+    pre = cors_entries[1]
+    # Lowercase HTTP/2 name, looked up with canonical case.
+    assert pre.request_header("Access-Control-Request-Method") == "PUT"
+    assert pre.request_header(":method") == "OPTIONS"
+    assert pre.initiator_type == "preflight"
+    assert pre.request_headers_size is None  # -1 in the HAR
+    assert cors_entries[0].initiator_type is None  # no _initiator
+
+    basic = load_fixture("auth_basic.har").entries
+    assert [e.request_headers_size for e in basic] == [500, 527, 500, 540]
+
+    redirects = load_fixture("redirects.har").entries
+    assert redirects[0].redirect_url == "/step1"
+    assert redirects[1].redirect_url == ""  # only the location header has it
+    assert redirects[1].header("Location") == "step2"
+
+
+def test_request_fields_default_when_missing(load_fixture):
+    # failures.har predates these fields: no headersSize, redirectURL, _initiator.
+    e = load_fixture("failures.har").entries[0]
+    assert (e.request_headers_size, e.redirect_url, e.initiator_type) == (None, "", None)

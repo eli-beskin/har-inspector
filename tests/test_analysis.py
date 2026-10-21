@@ -148,3 +148,26 @@ def test_failed_grouping(load_fixture):
         (404, "GET https://cdn.example.com/lib.js", 1, [], "Not Found"),
         (401, "GET https://api.example.com/me", 1, [], ""),
     ]
+
+
+# --- Findings ----------------------------------------------------------------
+
+def test_findings_sorted_by_severity_then_detector_then_entry(load_fixture):
+    a = analyze(load_fixture("client_errors.har"))
+    assert [(f.severity, f.evidence[0].index) for f in a.findings] == [
+        # Errors: CORS detector first (preflight #13 -> PUT #12, min index 12),
+        # then client codes by first entry: 3, 4, 5, 6, 7, 8.
+        ("error", 13),
+        ("error", 3), ("error", 4), ("error", 5), ("error", 6), ("error", 7), ("error", 8),
+        # Warnings: BLOCKED_BY_CLIENT #0, ORB #2, ERR_FOO_BAR #10, ERR_ABORTED #15.
+        ("warning", 0), ("warning", 2), ("warning", 10), ("warning", 15),
+    ]
+
+
+def test_findings_do_not_change_other_sections(load_fixture):
+    # The existing stats are computed exactly as before, findings or not.
+    a = analyze(load_fixture("cors.har"))
+    # 12 entries, none Chrome-internal. Status 0: #0 #2 #3 #7 #8 #10 = 6;
+    # 2xx: #4 #5 = 2; 4xx: #1 #9 #11 = 3; 5xx: #6 = 1.
+    assert a.summary.requests == 12
+    assert a.summary.by_class == {"1xx": 0, "2xx": 2, "3xx": 0, "4xx": 3, "5xx": 1, "failed": 6}

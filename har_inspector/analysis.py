@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 
 from har_inspector.classify import endpoint, is_chrome_internal, is_failure, status_class
+from har_inspector.detectors import Finding, run_all
 from har_inspector.model import Entry, HarFile
 
 STATUS_CLASSES = ("1xx", "2xx", "3xx", "4xx", "5xx", "failed")
@@ -58,6 +59,7 @@ class Analysis:
     failed: list[FailedGroup]
     slowest: list[SlowEntry]
     internal: list[Entry]
+    findings: list[Finding] = field(default_factory=list)
 
 
 def analyze(har: HarFile, top: int = 10) -> Analysis:
@@ -69,6 +71,8 @@ def analyze(har: HarFile, top: int = 10) -> Analysis:
         failed=failed_groups(real),
         slowest=slowest(real, top),
         internal=internal,
+        # Detectors see internal entries too (redirect chains need HSTS hops).
+        findings=run_all(har.entries),
     )
 
 

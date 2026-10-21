@@ -19,6 +19,13 @@ and produces a diagnostic report.
   breakdown is unreliable: report "breakdown unavailable", not a diagnosis.
 - Status 0 means the request failed without a response (blocked, aborted, CORS, network error).
 - Fields starting with `_` are Chrome-specific and may be missing in HARs from other browsers.
+- A request blocked by CORS can be logged *before* its preflight OPTIONS (1 ms earlier in
+  normal.har), so link them by time, never by "the next entry".
+- `net::ERR_BLOCKED_BY_ORB` comes with a non-zero status (200/204/404); `net::ERR_ABORTED`
+  often sits on a 200/204 that did arrive. Don't assume `_error` implies status 0.
+- HTTP/2 header names are lowercase; HTTP/1.1 ones are canonical case. Always compare
+  names case-insensitively. Exports may strip `Authorization` (and set request
+  `headersSize` -1), so a missing header never proves credentials weren't sent.
 
 ## Report rules
 - Failed groups are keyed by (status, METHOD + URL without query/fragment) and sorted by
@@ -27,6 +34,13 @@ and produces a diagnostic report.
   `tests/test_analysis.py::test_failed_grouping`.
 - "Breakdown unavailable" = empty `serverIPAddress` and one phase holds >= 95% of the
   measured time (exactly 95% counts as unavailable).
+- FINDINGS (right after SUMMARY) come from `har_inspector/detectors/`, one module per
+  detector. They are sorted by severity (error, warning, info), then detector order
+  (cors, auth, redirects, client_errors), then first evidence entry. Evidence numbers are
+  0-based HAR entry indices. More than 6 evidence items: show the first 4, then
+  "... and N more", then the last one (the end of a redirect chain).
+- Thresholds: CORS link window ±1000 ms; a redirect chain is flagged at >= 3 server hops
+  (Chrome-internal HSTS hops are labelled but not counted).
 
 ## Tests
 - Setup (once): `py -3.15 -m venv .venv`, then
