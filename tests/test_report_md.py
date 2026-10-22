@@ -197,3 +197,14 @@ def test_table_shape(load_fixture, name):
         widths = {len(_SEPARATOR.findall(line)) for line in table}
         assert len(widths) == 1, table
         assert re.fullmatch(r"\|( (---|--:) \|)+", table[1]), table[1]
+
+
+def test_secrets_in_urls_masked(load_fixture):
+    text = _render(load_fixture, "redact_userinfo.har")
+    for secret in ("LoopPass77", "S3cr", "p+q", "sid=s1"):
+        assert secret not in text
+    # Free text is escaped after masking: the marker's brackets too.
+    assert ("**ERROR** Redirect loop: https://gina:\\[REDACTED\\]@loop.example.com/a?"
+            "sid=\\[REDACTED\\] requested again") in text
+    assert "| 1 | 500 | `GET https://erin:[REDACTED]@api.example.com/v1` |  |" in text
+    assert "`GET https://alice:[REDACTED]@files.example.com/report.csv?page=1`" in text

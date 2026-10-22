@@ -149,19 +149,19 @@ def test_stats(run):
     # request.cookies sid + theme, response.cookies csrf = 2 + 1
     assert stats.cookies == 3
     assert stats.query == Counter({"access_token": 1})
-    # access_token: #0 url, #1 Location fragment, #1 redirectURL fragment = 3,
-    # plus #0 :path in h2 = 4. session: #0 Referer.
-    tokens = 4 if "h2" in name else 3
+    # access_token: #0 url, #1 Location fragment, #1 redirectURL fragment,
+    # #2 _initiator.url = 4, plus #0 :path in h2 = 5. session: #0 Referer.
+    tokens = 5 if "h2" in name else 4
     assert stats.url_params == Counter({"access_token": tokens, "session": 1})
     assert stats.post_params == Counter({"pwd": 1})
     assert stats.post_text == Counter({"pwd": 1, "client_secret": 1})
     # #2 access_token + session.id (counted under "session"), #3 token
     assert stats.response_bodies == Counter({"access_token": 1, "session": 1, "token": 1})
     # Pass 2 echoes: #0 body (bearer), #1 body (password), #0 X-Debug-Echo
-    # (api key), #2 _initiator (access token), page title (sid cookie).
-    assert stats.scrub == Counter(
-        {"body": 2, "header": 1, "initiator": 1, "page title": 1}
-    )
+    # (api key), page title (sid cookie). The #2 _initiator URL is redacted by
+    # name in pass 1 (counted in url_params above), so pass 2 finds nothing there.
+    assert stats.scrub == Counter({"body": 2, "header": 1, "page title": 1})
+    assert stats.userinfo == Counter() and stats.websocket == Counter()
     # 13 long secrets + "dark" + "pass" = 15 distinct
     assert (stats.secrets, stats.global_secrets) == (15, 13)
 
@@ -204,15 +204,19 @@ def test_url_encoded_echo_is_scrubbed():
     assert out["log"]["entries"][0]["response"]["content"]["text"] == f"next={R} and {R}"
 
 
-def test_analyzer_report_unchanged_except_redacted_url(tmp_path, fixture_path):
+def test_analyzer_report_unchanged_by_redaction(tmp_path, fixture_path):
     for name in FIXTURES:
         out, _ = redact(read_har_json(fixture_path(name)), NOW)
         path = tmp_path / name
         path.write_text(json.dumps(out), encoding="utf-8")
-        before = render(analyze(load(fixture_path(name)), top=10)).splitlines()
-        after = render(analyze(load(str(path)), top=10)).splitlines()
-        assert len(before) == len(after)
-        changed = [(b, a) for b, a in zip(before, after) if b != a]
-        # Only the #0 URL line in the slowest list (it shows the query string).
-        assert len(changed) == 1
-        assert "access_t" in changed[0][0] and "def123456" not in changed[0][1]
+        before = render(analyze(load(fixture_path(name)), top=10))
+        after = render(analyze(load(str(path)), top=10))
+        # The report masks secret params itself, so the #0 URL in the slowest
+        # list (the only one with a query string) reads the same either way.
+        assert after == before
+        # "GET " + url = 4+23+9+7+14+10+16 = 83 chars > 80: keep 77, head
+        # 77 - 77//3 = 52, tail 25. (Before masking, the tail showed "def123456",
+        # the end of the real token.)
+        line = "       GET https://api.example.com/v1/items?page=2&access_t" \
+               "...REDACTED]&country_code=US"
+        assert line in before.splitlines()

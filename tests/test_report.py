@@ -96,3 +96,19 @@ def test_evidence_cap_never_hides_a_single_item(load_fixture):
     text = _with_evidence(load_fixture, 6)
     assert "more" not in text
     assert all(f"x.example.com/{i}" in text for i in range(6))
+
+
+def test_secrets_in_urls_masked(load_fixture):
+    # Reports go into tickets: URL passwords and secret-named params are masked
+    # everywhere a URL is printed, even in a HAR that was never redacted.
+    text = _render(load_fixture, "redact_userinfo.har")
+    for secret in ("LoopPass77", "S3cr", "p+q", "sid=s1"):
+        assert secret not in text
+    # Finding title (the loop URL and the "chain starts at" endpoint) and evidence.
+    assert "Redirect loop: https://gina:[REDACTED]@loop.example.com/a?sid=[REDACTED]" in text
+    assert "(chain starts at GET https://gina:[REDACTED]@loop.example.com/a)" in text
+    assert "#2    GET     302  https://gina:[REDACTED]@loop.example.com/a?sid=[REDACTED]" in text
+    # Failed endpoint ("METHOD url") and the slowest list; page=1 / x=1 untouched.
+    assert "      1  500     GET https://erin:[REDACTED]@api.example.com/v1\n" in text
+    assert "       GET https://alice:[REDACTED]@files.example.com/report.csv?page=1\n" in text
+    assert "       GET https://erin:[REDACTED]@api.example.com/v1?x=1\n" in text

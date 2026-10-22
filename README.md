@@ -9,7 +9,8 @@ while: hundreds of requests, Chrome-internal noise, timings that are easy to mis
 har-inspector summarizes the capture, groups failed requests, shows where the slowest
 requests spent their time, and calls out common root causes (CORS, auth, redirects,
 client-side network errors) with a suggested next step. It can also write a redacted copy of
-the HAR, so the file can be shared further without tokens, cookies or passwords.
+the HAR, with tokens, cookies and passwords replaced by `[REDACTED]` (best-effort, see
+[Limitations](#limitations)).
 
 ## Features
 
@@ -28,9 +29,12 @@ the HAR, so the file can be shared further without tokens, cookies or passwords.
   - `redirects`: chains of 3+ hops, loops, server-side HTTP->HTTPS hops;
   - `client_errors`: Chrome `net::ERR_*` codes mapped to a likely cause and a hint.
 - **Redact** (`python -m har_inspector redact IN.har -o OUT.har [--force]`): writes a copy
-  with secrets replaced by `[REDACTED]` (headers, cookies, query and fragment params,
-  JSON/form bodies), then replaces every found secret value wherever else it appears in the
-  file. The input file is never modified.
+  with secrets replaced by `[REDACTED]` (headers, cookies, query and fragment params, URL
+  passwords, JSON/form/multipart bodies, WebSocket frames), then replaces every found secret
+  value wherever else it appears in the file. The input file is never modified. Best-effort:
+  see [Limitations](#limitations).
+- **Masked URLs in reports**: URL passwords and secret-named query/fragment params are shown
+  as `[REDACTED]` in both report formats, even for a HAR that was never redacted.
 - **Markdown output** (`--format md`): the same report as GitHub-flavored Markdown, for
   tickets and issues. Findings come first.
 
@@ -147,13 +151,15 @@ REDACTED tests/fixtures/redact_h1.har -> redacted.har (6 entries, none removed)
   headers              5  authorization 2, cookie 1, set-cookie 1, x-api-key 1
   cookies              3
   query params         1  access_token 1
-  params in URLs       4  access_token 3, session 1
+  params in URLs       5  access_token 4, session 1
   post data params     1  pwd 1
   post data text       2  client_secret 1, pwd 1
   response bodies      3  access_token 1, session 1, token 1
-  value scrub          5  body 2, header 1, initiator 1, page title 1
+  websocket frames     0
+  URL passwords        0
+  value scrub          4  body 2, header 1, page title 1
     13 distinct values of 8+ chars replaced everywhere; 2 shorter redacted by name only
-NOT SCANNED: 2 base64 bodies (left as is, may contain secrets)
+NOT SCANNED: 2 bodies (not redacted by name, may contain secrets)
   #4 image/png: binary base64 body
   #5 text/plain: base64 body is not UTF-8 text
 ```
@@ -205,8 +211,24 @@ Verified on real Chrome exports. The full spec is in [`CLAUDE.md`](CLAUDE.md).
   HTTP/2 `:path` pseudo-header.
 - Pass 2 replaces every found value of 8+ characters (and its URL-encoded forms) anywhere in
   the file.
-- Base64 text bodies are decoded, scrubbed and re-encoded; binary ones are reported as
-  NOT SCANNED rather than silently passed.
+- URL passwords (`https://user:pass@host`) are found by position in every string (URLs,
+  headers, initiator stacks, page titles, bodies), so short ones are redacted too. In the
+  HAR they become `user:%5BREDACTED%5D@host`: Python's `urlsplit` rejects `[` in the host
+  part, so the plain marker would make the redacted file unreadable for the analyzer.
+- Query params are also redacted in Chrome's `_initiator` URLs and in page titles that are
+  URLs (Chrome titles a page without `<title>` by its URL).
+- `multipart/form-data` bodies are split by the boundary (from the content type, else the
+  first line); parts with secret names are redacted, JSON/form parts by key, and delimiters,
+  headers and line endings are kept. `text/plain` and untyped bodies shaped like `k=v&k=v`
+  are treated as form data. Text WebSocket frames (`_webSocketMessages`) are parsed as JSON,
+  also behind a Socket.IO prefix (`42[...]`).
+- Names that end in `endpoint`/`url`/`uri` (`token_endpoint`) are not secrets: they hold
+  URLs, and redacting one would scrub that URL everywhere in the file.
+- Base64 text bodies are decoded, scrubbed and re-encoded; binary ones (and binary
+  WebSocket frames, multipart without a boundary) are reported as NOT SCANNED rather than
+  silently passed.
+- Reports mask URL passwords and secret-named params before truncating a URL, so a cut can
+  never leave half a secret. Grouping still uses the real URL.
 - Never writes over the input, refuses to overwrite OUT without `--force`, writes via a temp
   file with a read-back check, and adds a note to `log.comment`.
 
@@ -277,6 +299,23 @@ This project was built with [Claude Code](https://claude.com/claude-code).
   stripped from the export.
 - A rejected CORS preflight (403) followed by a PUT with status 0 on an ad endpoint.
 - A news site's video player requesting a missing localization file: 404 + ORB.
+
+## Limitations
+
+Redaction is best-effort: **review the output before sharing it.** Secrets are found by name
+(header, cookie, parameter and JSON key names), by position (URL passwords) and then by
+value. Not covered:
+
+- XML/SOAP bodies (`<Password>...</Password>`) and GraphQL arguments written inline in the
+  query text (variables in JSON are covered).
+- HTML forms in response bodies (`<input name="csrf_token" value="...">`); the token is still
+  caught by value if the capture also contains the request that sends it.
+- NDJSON, `text/event-stream` and JSONP bodies (the body as a whole is not valid JSON).
+- Secrets in URL paths (`/reset-password/<token>`) and in `Sec-WebSocket-Protocol`.
+- JSON-escaped URLs in bodies (`https:\/\/user:pass@host`).
+- Binary and non-UTF-8 bodies and binary WebSocket frames (listed as NOT SCANNED).
+- Values shorter than 8 characters are only redacted where they were found by name or
+  position, not everywhere else in the file.
 
 ## Roadmap
 

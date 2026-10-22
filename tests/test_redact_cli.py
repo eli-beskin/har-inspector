@@ -47,9 +47,9 @@ def test_redact_writes_output_and_summary(har_in, tmp_path, capsys):
     assert "headers              5  authorization 2, cookie 1, set-cookie 1, x-api-key 1" \
         in summary
     assert "cookies              3" in summary
-    assert "value scrub          5  body 2, header 1, initiator 1, page title 1" in summary
+    assert "value scrub          4  body 2, header 1, page title 1" in summary
     assert "13 distinct values of 8+ chars replaced everywhere; 2 shorter" in summary
-    assert "NOT SCANNED: 2 base64 bodies" in summary
+    assert "NOT SCANNED: 2 bodies (not redacted by name, may contain secrets)" in summary
     assert "#4 image/png: binary base64 body" in summary
     # The summary never prints a secret value.
     assert "SESSIONVAL" not in summary and "BEARER-" not in summary

@@ -15,6 +15,8 @@ def render(stats: Stats, source: str, target: str) -> str:
         ("post data params", stats.post_params),
         ("post data text", stats.post_text),
         ("response bodies", stats.response_bodies),
+        ("websocket frames", stats.websocket),
+        ("URL passwords", stats.userinfo),
     ]
     for label, value in rows:
         if isinstance(value, Counter):
@@ -33,8 +35,8 @@ def render(stats: Stats, source: str, target: str) -> str:
         lines.append("NOT SCANNED: none")
     else:
         n = len(stats.not_scanned)
-        lines.append(f"NOT SCANNED: {n} base64 bod{'ies' if n > 1 else 'y'} "
-                     "(left as is, may contain secrets)")
+        lines.append(f"NOT SCANNED: {n} bod{'ies' if n > 1 else 'y'} "
+                     "(not redacted by name, may contain secrets)")
         lines.extend(f"  #{s.entry} {s.mime_type}: {s.reason}" for s in stats.not_scanned)
     return "\n".join(lines) + "\n"
 

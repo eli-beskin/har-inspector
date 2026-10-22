@@ -46,6 +46,8 @@ and produces a diagnostic report.
   Shared helpers (truncation, sizes, evidence cap) live in `render_common.py`, so both
   formats cut URLs and evidence the same way. URLs go in code spans; free text is
   backslash-escaped; `|` is escaped in every table cell, code spans included.
+- Both reports mask URL passwords and secret-named query/fragment params (`urls.py`, the
+  same name rules as redaction) before truncating. Reports go into tickets.
 
 ## Redaction (`python -m har_inspector redact IN.har -o OUT.har [--force]`)
 - Code in `har_inspector/redact/`: `names.py` (secret header/param name rules, pinned by
@@ -55,6 +57,13 @@ and produces a diagnostic report.
   Set-Cookie attributes. Query and fragment params are redacted inside `request.url`,
   `redirectURL`, `:path`, Referer, Location. JSON/form bodies are redacted by key, in
   requests and responses.
+- URL passwords (`scheme://user:pass@`) are found by position in every string and become
+  `user:%5BREDACTED%5D@` (`urlsplit` raises on `[` in the authority). Query params are also
+  redacted in `_initiator` URLs and URL-shaped page titles.
+- Multipart bodies are split by boundary (content type, else first line), keeping
+  structure; text/plain or untyped `k=v&k=v` bodies count as form data; text
+  `_webSocketMessages` frames are parsed as JSON (Socket.IO digit prefix kept).
+- Names ending in `endpoint`/`url`/`uri` are never secret (they hold URLs).
 - Pass 2 replaces every value of 8+ chars found in pass 1 (also its URL-encoded forms) in
   every string of the file. Shorter values are only redacted where found by name.
 - Base64 bodies: text-like ones are decoded, scrubbed and re-encoded. Binary/non-UTF-8

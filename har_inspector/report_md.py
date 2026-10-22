@@ -10,8 +10,9 @@ import re
 from har_inspector.analysis import Analysis
 from har_inspector.model import PHASES
 from har_inspector.render_common import (
-    MAX_EVIDENCE, ms, size, truncate, utc_time, visible_evidence,
+    MAX_EVIDENCE, endpoint, ms, request, size, url, utc_time, visible_evidence,
 )
+from har_inspector.render_common import text as masked
 
 # Characters that can start emphasis, links, HTML or break a table cell.
 # Not ">": it only matters at the start of a line (blockquote), and escaping
@@ -50,13 +51,13 @@ def _findings(a: Analysis) -> str:
                 continue
             rows.append([
                 str(ev.index), _text(ev.method), str(ev.status),
-                _code(truncate(ev.url)), _text(ev.note),
+                _code(url(ev.url)), _text(masked(ev.note)),
             ])
-        parts = [f"**{f.severity.upper()}** {_text(f.title)}"]
+        parts = [f"**{f.severity.upper()}** {_text(masked(f.title))}"]
         if rows:
             parts.append(_table(["#", "Method", "Status", "URL", "Note"], "rlrll", rows))
         if f.next_step:
-            parts.append(f"**Next step:** {_text(f.next_step)}")
+            parts.append(f"**Next step:** {_text(masked(f.next_step))}")
         blocks.append("\n\n".join(parts))
     return "## Findings\n\n" + "\n\n".join(blocks)
 
@@ -91,7 +92,7 @@ def _failed(a: Analysis) -> str:
     rows = []
     for g in a.failed:
         detail = ", ".join(filter(None, [g.status_text, *g.errors]))
-        rows.append([str(g.count), str(g.status), _code(truncate(g.endpoint)), _text(detail)])
+        rows.append([str(g.count), str(g.status), _code(endpoint(g.endpoint)), _text(detail)])
     return "## Failed requests\n\n" + _table(
         ["Count", "Status", "Endpoint", "Details"], "rrll", rows
     )
@@ -111,7 +112,7 @@ def _slowest(a: Analysis) -> str:
         rows.append([
             str(i), f"{e.time_ms:.0f}", str(e.status), dominant,
             *(ms(s.phases[p]) for p in PHASES),
-            _code(truncate(f"{e.method} {e.url}")),
+            _code(request(e.method, e.url)),
         ])
     head = ["#", "Time ms", "Status", "Dominant", *PHASES, "Request"]
     align = "rrrl" + "r" * len(PHASES) + "l"
@@ -128,7 +129,7 @@ def _internal(a: Analysis) -> str:
     rows = [
         [
             str(e.status),
-            _code(truncate(f"{e.method} {e.url}")),
+            _code(request(e.method, e.url)),
             _text(e.header("Non-Authoritative-Reason") or ""),
         ]
         for e in a.internal

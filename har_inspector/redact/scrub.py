@@ -1,7 +1,8 @@
 """Redact secrets in a raw HAR dict: first by name, then every echo of their values.
 
-Pass 1 replaces values found by name (headers, cookies, query/form/JSON
-parameters) and remembers them. Pass 2 replaces those values in every string of
+Pass 1 replaces values found by name (headers, cookies, query/form/multipart/JSON
+parameters, WebSocket frames) or by position (URL userinfo passwords) and
+remembers them. Pass 2 replaces those values in every string of
 the document, because servers and browsers echo them (bodies, Referer, Location,
 page titles, initiator stacks). Entries and names are never removed.
 """
@@ -13,15 +14,33 @@ import re
 from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime
-from urllib.parse import quote, quote_plus, unquote_plus
+from urllib.parse import quote, quote_plus, unquote, unquote_plus
 
 from har_inspector import __version__
 from har_inspector.redact.names import URL_HEADERS, is_secret_header, is_secret_param
+from har_inspector.urls import REDACTED, USERINFO, map_pairs, map_url
 
-REDACTED = "[REDACTED]"
+# The userinfo marker is the URL-encoded REDACTED: urlsplit() rejects "[" in the
+# authority (ValueError on Python 3.11+), and the detectors urlsplit every URL,
+# so "user:[REDACTED]@host" would crash analyzing the redacted file.
+USERINFO_MARKER = quote(REDACTED, safe="")
 # Shorter values are redacted only where found by name: replacing e.g. "pass"
 # everywhere would corrupt unrelated text.
 MIN_GLOBAL_LENGTH = 8
+
+_URL_START = re.compile(r"[a-z][a-z0-9+.-]*://", re.IGNORECASE)
+# k=v&k=v with no spaces: urlencoded data sent as text/plain or without a type.
+_PAIRS = re.compile(r"[^=&\s]+=[^&\s]*(?:&[^=&\s]+=[^&\s]*)*")
+_BOUNDARY = re.compile(r'boundary=(?:"([^"]+)"|([^;\s]+))', re.IGNORECASE)
+# One multipart part after its delimiter: line end, headers, blank line, body, and
+# the line end that belongs to the next delimiter.
+_PART = re.compile(r"(\r?\n)(.*?)(\r?\n\r?\n)(.*?)(\r?\n)?", re.DOTALL)
+# "; name=" so that "filename=" doesn't match.
+_PART_NAME = re.compile(
+    r'^content-disposition:[^\r\n]*?;\s*name=(?:"([^"]*)"|([^;\s]+))',
+    re.IGNORECASE | re.MULTILINE,
+)
+_PART_TYPE = re.compile(r"^content-type:[ \t]*([^\r\n]*)", re.IGNORECASE | re.MULTILINE)
 
 
 @dataclass(frozen=True)
@@ -42,6 +61,8 @@ class Stats:
     post_params: Counter = field(default_factory=Counter)  # postData.params
     post_text: Counter = field(default_factory=Counter)  # postData.text
     response_bodies: Counter = field(default_factory=Counter)
+    websocket: Counter = field(default_factory=Counter)  # _webSocketMessages data
+    userinfo: Counter = field(default_factory=Counter)  # URL passwords, by location
     scrub: Counter = field(default_factory=Counter)  # location category -> replacements
     secrets: int = 0  # distinct secret values found by name
     global_secrets: int = 0  # of those, long enough to be scrubbed everywhere
@@ -59,6 +80,11 @@ def redact(har: dict, now: datetime) -> tuple[dict, Stats]:
     for index, entry in enumerate(log["entries"]):
         if isinstance(entry, dict):
             r.entry(index, entry)
+    for page in _dicts(log.get("pages")):
+        # Chrome titles a page without <title> by its URL.
+        if isinstance(page.get("title"), str) and _URL_START.match(page["title"]):
+            page["title"] = r._url(page["title"])
+    r.userinfo(doc)
     r.scrub(doc)
     r.reencode()
     # Added after the scrub so the note itself is never scrubbed; an existing
@@ -77,10 +103,12 @@ class _Redactor:
         # Base64 bodies decoded for scanning: (content dict, original base64,
         # decoded text), re-encoded by reencode() once both passes are done.
         self.decoded: list[tuple[dict, str, str]] = []
+        self.index = 0  # entry being redacted, for NOT SCANNED rows
 
     # -- pass 1: by name ------------------------------------------------------
 
     def entry(self, index: int, entry: dict) -> None:
+        self.index = index
         request = _dict(entry.get("request"))
         response = _dict(entry.get("response"))
         for message in (request, response):
@@ -98,7 +126,9 @@ class _Redactor:
         for message, key in ((request, "url"), (response, "redirectURL")):
             if isinstance(message.get(key), str):
                 message[key] = self._url(message[key])
+        self._initiator(entry.get("_initiator"))
         post = _dict(request.get("postData"))
+        # Multipart params too: Firefox lists each part here (with fileName).
         for p in _dicts(post.get("params")):
             name = str(p.get("name", ""))
             if is_secret_param(name) and self._keep_param(p.get("value")):
@@ -110,13 +140,20 @@ class _Redactor:
         content = _dict(response.get("content"))
         if isinstance(content.get("text"), str) and content["text"]:
             self._content(index, content)
+        for m in _dicts(entry.get("_webSocketMessages")):
+            if not isinstance(m.get("data"), str):
+                continue
+            if m.get("opcode", 1) == 1:
+                m["data"] = self._frame(m["data"])
+            elif m["data"]:
+                self._not_scanned(index, "websocket", "binary WebSocket frame")
 
     def _keep(self, value) -> bool:
         """Remember a secret value; False if there is nothing to redact."""
         if value is None or isinstance(value, bool):
             return False
         value = str(value).strip()
-        if not value or value == REDACTED:
+        if not value or value in (REDACTED, USERINFO_MARKER):
             return False
         self.secrets.add(value)
         if len(value) > 2 and value[0] == value[-1] == '"':
@@ -183,32 +220,37 @@ class _Redactor:
         return f"{scheme} {REDACTED}"
 
     def _url(self, url: str) -> str:
-        # The fragment too: the OAuth implicit flow returns #access_token=...
-        base, hash_, fragment = url.partition("#")
-        path, q, query = base.partition("?")
-        if q:
-            query = self._pairs(query, self.stats.url_params)
-        if hash_ and "=" in fragment:
-            fragment = self._pairs(fragment, self.stats.url_params)
-        return path + q + query + hash_ + fragment
+        # Query and fragment only: userinfo passwords are handled in every
+        # string at once by userinfo().
+        return map_url(url, lambda _: None, self._param(self.stats.url_params))
 
-    def _pairs(self, text: str, counter: Counter) -> str:
-        # Split by hand rather than parse_qsl/urlencode so that parameters we
-        # don't touch stay byte-identical (encoding, order, empty values).
-        out = []
-        for pair in text.split("&"):
-            raw_name, eq, value = pair.partition("=")
-            name = unquote_plus(raw_name)
-            if eq and is_secret_param(name) and self._keep_param(value):
-                pair = f"{raw_name}={REDACTED}"
+    def _param(self, counter: Counter):
+        def replace(name: str, value: str) -> str | None:
+            if is_secret_param(name) and self._keep_param(value):
                 counter[name] += 1
-            out.append(pair)
-        return "&".join(out)
+                return REDACTED
+            return None
+        return replace
+
+    def _initiator(self, node) -> None:
+        # Chrome's _initiator: url, and stack.callFrames[].url with parent stacks.
+        if isinstance(node, dict):
+            for key, value in node.items():
+                if key == "url" and isinstance(value, str):
+                    node[key] = self._url(value)
+                else:
+                    self._initiator(value)
+        elif isinstance(node, list):
+            for value in node:
+                self._initiator(value)
 
     def _body(self, mime_type, text: str, counter: Counter) -> str:
-        mime_type = str(mime_type or "").lower()
+        raw_type = str(mime_type or "")  # the multipart boundary is case-sensitive
+        mime_type = raw_type.lower()
+        if "multipart/form-data" in mime_type:
+            return self._multipart(raw_type, text, counter)
         if "x-www-form-urlencoded" in mime_type:
-            return self._pairs(text, counter)
+            return map_pairs(text, self._param(counter))
         if "json" in mime_type or text.lstrip()[:1] in ("{", "["):
             try:
                 doc = json.loads(text)
@@ -216,7 +258,50 @@ class _Redactor:
                 return text  # left to the value scrub
             if self._json(doc, None, counter):
                 return json.dumps(doc, ensure_ascii=False, separators=(",", ":"))
+            return text
+        # sendBeacon and analytics libraries post k=v&k=v as text/plain or untyped.
+        if mime_type.split(";")[0].strip() in ("", "text/plain") and _PAIRS.fullmatch(text):
+            return map_pairs(text, self._param(counter))
         return text
+
+    def _multipart(self, mime_type: str, text: str, counter: Counter) -> str:
+        m = _BOUNDARY.search(mime_type)
+        boundary = (m[1] or m[2]) if m else ""
+        if not boundary and text.startswith("--"):
+            # No boundary parameter: the first line is the delimiter.
+            boundary = text.splitlines()[0][2:].strip()
+        delimiter = f"--{boundary}"
+        if not boundary or delimiter not in text:
+            self._not_scanned(self.index, mime_type, "multipart body without boundary")
+            return text
+        # chunks[0] is the preamble; the closing delimiter leaves a chunk starting "--".
+        chunks = text.split(delimiter)
+        return delimiter.join(chunks[:1] + [self._part(c, counter) for c in chunks[1:]])
+
+    def _part(self, chunk: str, counter: Counter) -> str:
+        m = None if chunk.startswith("--") else _PART.fullmatch(chunk)
+        if not m:
+            return chunk  # closing delimiter, or no blank line after the headers
+        lead, headers, blank, body, tail = m.groups()
+        name = _PART_NAME.search(headers)
+        name = (name[1] if name[1] is not None else name[2]) if name else ""
+        if is_secret_param(name):
+            if self._keep(body):
+                body = REDACTED
+                counter[name] += 1
+        else:
+            # A JSON or form part (or an uploaded JSON file) is redacted by key.
+            part_type = _PART_TYPE.search(headers)
+            body = self._body(part_type[1] if part_type else None, body, counter)
+        return lead + headers + blank + body + (tail or "")
+
+    def _frame(self, data: str) -> str:
+        # Socket.IO / Engine.IO put the packet type before the JSON: 42["auth",{...}]
+        prefix = re.match(r"\d*", data)[0]
+        rest = data[len(prefix):]
+        if prefix and rest[:1] in ("[", "{"):
+            return prefix + self._body(None, rest, self.stats.websocket)
+        return self._body(None, data, self.stats.websocket)
 
     def _json(self, node, owner: str | None, counter: Counter) -> bool:
         """Redact scalars under secret keys; everything below a secret key counts
@@ -256,6 +341,32 @@ class _Redactor:
     def _not_scanned(self, index: int, mime_type: str, reason: str) -> None:
         self.stats.not_scanned.append(NotScanned(index, mime_type or "?", reason))
 
+    def userinfo(self, doc: dict) -> None:
+        """URL passwords (scheme://user:password@host) in every string: request.url,
+        headers, initiator stacks, page titles and bodies alike. They are found by
+        position, so short ones are redacted too wherever they appear in a URL."""
+        self._userinfo_walk(doc, ())
+
+    def _userinfo_walk(self, node, path: tuple) -> None:
+        items = node.items() if isinstance(node, dict) else enumerate(node)
+        for key, value in list(items):
+            if isinstance(value, str):
+                if "://" in value:
+                    where = path + (key,)
+                    new = USERINFO.sub(lambda m: self._password(m, where), value)
+                    if new != value:
+                        node[key] = new
+            elif isinstance(value, (dict, list)):
+                self._userinfo_walk(value, path + (key,))
+
+    def _password(self, m: re.Match, path: tuple) -> str:
+        password = m[3]
+        if not self._keep(password):
+            return m[0]  # already redacted
+        self._keep(unquote(password))  # "+" is literal in userinfo: not unquote_plus
+        self.stats.userinfo[_category(path)] += 1
+        return f"{m[1]}{m[2]}:{USERINFO_MARKER}@"
+
     # -- pass 2: by value -----------------------------------------------------
 
     def scrub(self, doc: dict) -> None:
@@ -267,7 +378,8 @@ class _Redactor:
             for s in long_values
             for form in (s, quote(s, safe=""), quote_plus(s), unquote_plus(s))
             # A form inside "[REDACTED]" would re-redact our own marker.
-            if len(form) >= MIN_GLOBAL_LENGTH and form not in REDACTED
+            if len(form) >= MIN_GLOBAL_LENGTH
+            and form not in REDACTED and form not in USERINFO_MARKER
         }
         if not forms:
             return
@@ -304,6 +416,8 @@ def _category(path: tuple) -> str:
         return "page title"
     if "_initiator" in keys:
         return "initiator"
+    if "_webSocketMessages" in keys:
+        return "websocket"
     if last == "text" and ("content" in keys or "postData" in keys):
         return "body"
     if "headers" in keys:

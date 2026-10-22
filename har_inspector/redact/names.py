@@ -14,12 +14,14 @@ _SECRET_HEADERS = {
 # A header is also secret if any of its "-"/"_" parts is one of these words.
 _SECRET_HEADER_WORDS = {
     "token", "secret", "password", "apikey", "csrf", "xsrf", "signature", "session",
+    "jwt", "assertion",  # Cf-Access-Jwt-Assertion, X-Goog-Iap-Jwt-Assertion
 }
+# Not "credentials": Access-Control-Allow-Credentials is a CORS flag the analyzer reads.
 
 _SECRET_PARAMS = {
     "token", "access_token", "id_token", "refresh_token", "api_key", "apikey", "key",
     "code", "session", "sid", "sig", "signature", "password", "passwd", "pwd",
-    "secret", "client_secret", "auth",
+    "secret", "client_secret", "auth", "code_verifier", "samlresponse",
 }
 # A parameter is also secret if any of its words is one of these ("f.sid",
 # "sessionId", "csrf_token"). "key", "code" and "auth" only count as whole names
@@ -27,8 +29,13 @@ _SECRET_PARAMS = {
 # "country_code", "authuser".
 _SECRET_PARAM_WORDS = {
     "token", "secret", "password", "passwd", "signature", "sid", "session", "apikey",
-    "csrf", "xsrf",
+    "csrf", "xsrf", "authorization", "jwt", "credential", "credentials", "passphrase",
+    "assertion", "otp",
 }
+# A name ending in one of these holds a URL ("token_endpoint", "authorization_url" in
+# OpenID discovery documents), not a secret. Redacting it would also scrub that
+# URL everywhere in the file, request.url included.
+_URL_WORDS = {"endpoint", "url", "uri"}
 _KEY_QUALIFIERS = {"api", "secret", "private", "access"}
 
 # HTTP/2 pseudo-headers and headers whose value is a URL: their query string
@@ -50,6 +57,8 @@ def is_secret_param(name: str) -> bool:
     if name.lower() in _SECRET_PARAMS:
         return True
     words = _words(name)
+    if words and words[-1] in _URL_WORDS:
+        return False
     if _SECRET_PARAM_WORDS.intersection(words):
         return True
     return len(words) > 1 and words[-1] == "key" and words[-2] in _KEY_QUALIFIERS

@@ -36,3 +36,35 @@ def test_secret_params(name):
 ])
 def test_non_secret_params(name):
     assert not is_secret_param(name)
+
+
+@pytest.mark.parametrize("name", [
+    "cf-access-jwt-assertion", "X-Goog-Iap-Jwt-Assertion",
+])
+def test_secret_headers_added(name):
+    assert is_secret_header(name)
+
+
+def test_cors_credentials_flag_is_not_secret():
+    # The CORS detector reads it; "credentials" is a secret word for params only.
+    assert not is_secret_header("access-control-allow-credentials")
+
+
+@pytest.mark.parametrize("name", [
+    "authorization", "Authorization", "jwt", "id_jwt", "credential", "credentials",
+    "passphrase", "client_assertion", "otp", "otp_code", "code_verifier", "SAMLResponse",
+    # Over-match accepted: fetch()'s "credentialsMode" only hides an "include".
+    "credentialsMode",
+])
+def test_secret_params_added(name):
+    assert is_secret_param(name)
+
+
+@pytest.mark.parametrize("name", [
+    # OpenID discovery: these hold URLs, and a redacted URL would be scrubbed
+    # everywhere in the file.
+    "token_endpoint", "authorization_endpoint", "token_url", "jwks_uri", "redirect_uri",
+    "otpauth", "authority",
+])
+def test_url_and_near_miss_params_not_secret(name):
+    assert not is_secret_param(name)

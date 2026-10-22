@@ -6,9 +6,12 @@ import textwrap
 from har_inspector.analysis import Analysis
 from har_inspector.model import PHASES
 from har_inspector.render_common import MAX_EVIDENCE, visible_evidence
+from har_inspector.render_common import endpoint as _endpoint
 from har_inspector.render_common import ms as _ms
+from har_inspector.render_common import request as _request
 from har_inspector.render_common import size as _size
-from har_inspector.render_common import truncate as _truncate
+from har_inspector.render_common import text as _masked
+from har_inspector.render_common import url as _url
 from har_inspector.render_common import utc_time as _time
 
 TEXT_WIDTH = 100
@@ -62,16 +65,16 @@ def _findings(a: Analysis) -> str:
     pad = " " * 11
     blocks = []
     for f in a.findings:
-        lines = [_wrap(f.title, f"  {f.severity.upper():<8} ", pad)]
+        lines = [_wrap(_masked(f.title), f"  {f.severity.upper():<8} ", pad)]
         hidden = len(f.evidence) - MAX_EVIDENCE
         for ev in visible_evidence(f.evidence):
             if ev is None:
                 lines.append(f"{pad}... and {hidden} more")
                 continue
-            line = f"{pad}#{ev.index:<4} {ev.method:<7} {ev.status:<4} {_truncate(ev.url)}"
-            lines.append(f"{line}  {ev.note}" if ev.note else line)
+            line = f"{pad}#{ev.index:<4} {ev.method:<7} {ev.status:<4} {_url(ev.url)}"
+            lines.append(f"{line}  {_masked(ev.note)}" if ev.note else line)
         if f.next_step:
-            lines.append(_wrap(f.next_step, f"{pad}Next step: ", pad + " " * 11))
+            lines.append(_wrap(_masked(f.next_step), f"{pad}Next step: ", pad + " " * 11))
         blocks.append("\n".join(lines))
     return "FINDINGS\n" + "\n\n".join(blocks)
 
@@ -85,7 +88,7 @@ def _failed(a: Analysis) -> str:
         detail = f"{g.status_text}" if g.status_text else ""
         if g.errors:
             detail = ", ".join(filter(None, [detail, *g.errors]))
-        lines.append(f"  {g.count:>5}  {status:<6}  {_truncate(g.endpoint)}")
+        lines.append(f"  {g.count:>5}  {status:<6}  {_endpoint(g.endpoint)}")
         if detail:
             lines.append(f"  {'':>5}  {'':<6}    {detail}")
     return "\n".join(lines)
@@ -110,7 +113,7 @@ def _slowest(a: Analysis) -> str:
         lines.append(
             f"  {i:>3}  {e.time_ms:>8.0f}  {e.status:<6}  {dominant:<22}{phases}"
         )
-        lines.append(f"       {_truncate(f'{e.method} {e.url}')}")
+        lines.append(f"       {_request(e.method, e.url)}")
     return "\n".join(lines)
 
 
@@ -121,7 +124,7 @@ def _internal(a: Analysis) -> str:
     lines = [title]
     for e in a.internal:
         reason = e.header("Non-Authoritative-Reason") or ""
-        lines.append(f"  {e.status}  {_truncate(f'{e.method} {e.url}')}")
+        lines.append(f"  {e.status}  {_request(e.method, e.url)}")
         lines.append(f"       reason: {reason}")
     return "\n".join(lines)
 
