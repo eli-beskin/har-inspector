@@ -13,6 +13,7 @@ from har_inspector.parser import HarError, load, read_har_json
 from har_inspector.redact import summary
 from har_inspector.redact.scrub import redact
 from har_inspector import report, report_md
+from har_inspector.render_common import safe
 
 RENDERERS = {"text": report.render, "md": report_md.render}
 
@@ -52,7 +53,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         har = load(args.file)
     except HarError as exc:
-        print(f"har-inspector: error: {exc}", file=sys.stderr)
+        _error(exc)
         return 2
 
     sys.stdout.write(RENDERERS[args.format](analyze(har, top=args.top)))
@@ -77,11 +78,16 @@ def _redact_main(argv: list[str]) -> int:
         redacted, stats = redact(har, datetime.now(timezone.utc))
         _write(redacted, args.output, args.file)
     except HarError as exc:
-        print(f"har-inspector: error: {exc}", file=sys.stderr)
+        _error(exc)
         return 2
 
     sys.stdout.write(summary.render(stats, args.file, args.output))
     return 0
+
+
+def _error(exc: HarError) -> None:
+    # Messages can echo HAR content (a malformed field) and file names.
+    print(f"har-inspector: error: {safe(str(exc))}", file=sys.stderr)
 
 
 def _check_output(source: str, target: str, force: bool) -> None:

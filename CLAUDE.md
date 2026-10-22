@@ -48,6 +48,9 @@ and produces a diagnostic report.
   backslash-escaped; `|` is escaped in every table cell, code spans included.
 - Both reports mask URL passwords and secret-named query/fragment params (`urls.py`, the
   same name rules as redaction) before truncating. Reports go into tickets.
+- Every HAR-derived string printed (both reports, redact summary, error messages) goes
+  through `render_common.safe()`: control and bidi characters become visible escapes
+  (`\x1b`, `\u202e`); mask -> truncate -> escape. Pinned by `tests/test_output_safety.py`.
 
 ## Redaction (`python -m har_inspector redact IN.har -o OUT.har [--force]`)
 - Code in `har_inspector/redact/`: `names.py` (secret header/param name rules, pinned by

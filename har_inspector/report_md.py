@@ -10,7 +10,7 @@ import re
 from har_inspector.analysis import Analysis
 from har_inspector.model import PHASES
 from har_inspector.render_common import (
-    MAX_EVIDENCE, endpoint, ms, request, size, url, utc_time, visible_evidence,
+    MAX_EVIDENCE, endpoint, ms, request, safe, size, url, utc_time, visible_evidence,
 )
 from har_inspector.render_common import text as masked
 
@@ -29,12 +29,13 @@ def render(a: Analysis) -> str:
         _slowest(a),
         _internal(a),
     ]
-    return "\n\n".join(sections) + "\n"
+    # Backstop, as in report.py: fields are escaped where they are printed.
+    return safe("\n\n".join(sections) + "\n", keep_newlines=True)
 
 
 def _header(a: Analysis) -> str:
-    name = _text(os.path.basename(a.har.path))
-    creator = _text(a.har.creator or "unknown")
+    name = _text(safe(os.path.basename(a.har.path)))
+    creator = _text(safe(a.har.creator or "unknown"))
     return f"# HAR Inspector: {name}\n\nCreator: {creator}, Pages: {a.har.page_count}"
 
 
@@ -50,7 +51,7 @@ def _findings(a: Analysis) -> str:
                 rows.append(["", "", "", f"*... and {hidden} more*", ""])
                 continue
             rows.append([
-                str(ev.index), _text(ev.method), str(ev.status),
+                str(ev.index), _text(safe(ev.method)), str(ev.status),
                 _code(url(ev.url)), _text(masked(ev.note)),
             ])
         parts = [f"**{f.severity.upper()}** {_text(masked(f.title))}"]
@@ -92,7 +93,7 @@ def _failed(a: Analysis) -> str:
     rows = []
     for g in a.failed:
         detail = ", ".join(filter(None, [g.status_text, *g.errors]))
-        rows.append([str(g.count), str(g.status), _code(endpoint(g.endpoint)), _text(detail)])
+        rows.append([str(g.count), str(g.status), _code(endpoint(g.endpoint)), _text(safe(detail))])
     return "## Failed requests\n\n" + _table(
         ["Count", "Status", "Endpoint", "Details"], "rrll", rows
     )
@@ -130,7 +131,7 @@ def _internal(a: Analysis) -> str:
         [
             str(e.status),
             _code(request(e.method, e.url)),
-            _text(e.header("Non-Authoritative-Reason") or ""),
+            _text(safe(e.header("Non-Authoritative-Reason") or "")),
         ]
         for e in a.internal
     ]

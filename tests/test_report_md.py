@@ -170,7 +170,9 @@ def test_escaping(load_fixture):
     text = _with_finding(load_fixture, finding)
     assert "**WARNING** Odd \\*title\\* with \\_under\\_ and \\[link\\](x)\n" in text
     # One backtick inside -> a two-backtick fence; "|" escaped even in the code span.
-    assert "| ``https://x.example.com/a\\|b`c`` | note with \\| pipe |" in text
+    # The newline in the note becomes a visible "\n" (render_common.safe), whose
+    # backslash is then Markdown-escaped: source "note\\nwith", rendered "note\nwith".
+    assert "| ``https://x.example.com/a\\|b`c`` | note\\\\nwith \\| pipe |" in text
     assert "**Next step:** \\# not a heading" in text
 
 

@@ -9,6 +9,7 @@ from har_inspector.render_common import MAX_EVIDENCE, visible_evidence
 from har_inspector.render_common import endpoint as _endpoint
 from har_inspector.render_common import ms as _ms
 from har_inspector.render_common import request as _request
+from har_inspector.render_common import safe as _safe
 from har_inspector.render_common import size as _size
 from har_inspector.render_common import text as _masked
 from har_inspector.render_common import url as _url
@@ -26,12 +27,14 @@ def render(a: Analysis) -> str:
         _slowest(a),
         _internal(a),
     ]
-    return "\n\n".join(sections) + "\n"
+    # Every HAR field is escaped where it is printed; this pass is a backstop
+    # for a field added later without it.
+    return _safe("\n\n".join(sections) + "\n", keep_newlines=True)
 
 
 def _header(a: Analysis) -> str:
-    lines = [f"HAR Inspector - {os.path.basename(a.har.path)}"]
-    lines.append(f"Creator: {a.har.creator or 'unknown'}   Pages: {a.har.page_count}")
+    lines = [f"HAR Inspector - {_safe(os.path.basename(a.har.path))}"]
+    lines.append(f"Creator: {_safe(a.har.creator or 'unknown')}   Pages: {a.har.page_count}")
     return "\n".join(lines)
 
 
@@ -71,7 +74,7 @@ def _findings(a: Analysis) -> str:
             if ev is None:
                 lines.append(f"{pad}... and {hidden} more")
                 continue
-            line = f"{pad}#{ev.index:<4} {ev.method:<7} {ev.status:<4} {_url(ev.url)}"
+            line = f"{pad}#{ev.index:<4} {_safe(ev.method):<7} {ev.status:<4} {_url(ev.url)}"
             lines.append(f"{line}  {_masked(ev.note)}" if ev.note else line)
         if f.next_step:
             lines.append(_wrap(_masked(f.next_step), f"{pad}Next step: ", pad + " " * 11))
@@ -88,6 +91,7 @@ def _failed(a: Analysis) -> str:
         detail = f"{g.status_text}" if g.status_text else ""
         if g.errors:
             detail = ", ".join(filter(None, [detail, *g.errors]))
+        detail = _safe(detail)
         lines.append(f"  {g.count:>5}  {status:<6}  {_endpoint(g.endpoint)}")
         if detail:
             lines.append(f"  {'':>5}  {'':<6}    {detail}")
@@ -125,7 +129,7 @@ def _internal(a: Analysis) -> str:
     for e in a.internal:
         reason = e.header("Non-Authoritative-Reason") or ""
         lines.append(f"  {e.status}  {_request(e.method, e.url)}")
-        lines.append(f"       reason: {reason}")
+        lines.append(f"       reason: {_safe(reason)}")
     return "\n".join(lines)
 
 

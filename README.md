@@ -235,6 +235,9 @@ Verified on real Chrome exports. The full spec is in [`CLAUDE.md`](CLAUDE.md).
 **Code**
 - Standard library only. Parsing, analysis and reporting live in separate modules; the
   text and Markdown renderers share truncation and evidence rules (`render_common.py`).
+- Control and bidi characters from the HAR (ESC, `\r`, `\n`, U+202E...) are printed as visible
+  escapes (`\x1b`, `\u202e`) in reports, the redaction summary and error messages, so a crafted
+  HAR can't rewrite the terminal or disguise a URL.
 
 </details>
 
@@ -282,6 +285,8 @@ This project was built with [Claude Code](https://claude.com/claude-code).
 - In HTTP/2 the query string also lives in the `:path` pseudo-header (redaction).
 - It asked scope questions instead of guessing (`ERR_ABORTED` noise, cookie structure,
   secret keys in response bodies).
+- `"[REDACTED]"` inside URL userinfo makes `urlsplit` raise on Python 3.15, so the HAR uses
+  the encoded marker `%5BREDACTED%5D`.
 
 **What I caught or decided in review**
 - Boundary tests exactly at the 95% threshold; tests for case-insensitive header matching.
@@ -292,6 +297,17 @@ This project was built with [Claude Code](https://claude.com/claude-code).
 - Baseline before/after diffs to prove existing output did not change.
 - A redaction note in `log.comment`; findings first in Markdown; URL truncation kept for
   tickets.
+- Reading the output on a fresh clone, a failed preflight was reported twice (CORS finding +
+  client errors); 185 tests missed it.
+
+**External review after publishing**
+- A friend found two redaction leaks (URL userinfo, multipart forms) and terminal escape
+  injection in the output; an audit then found four more gaps (WebSocket frames, text/plain
+  bodies, initiator/title URLs, missing secret names).
+
+**Agent control**
+- Claude Code's permission check blocked a history rewrite (`git filter-branch`); Claude handed
+  the decision back to me instead of working around it.
 
 **Real-world findings while testing on real HAR files**
 - Chrome's internal HTTP->HTTPS 307 and lost timing breakdowns.

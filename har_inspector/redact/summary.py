@@ -3,10 +3,11 @@
 from collections import Counter
 
 from har_inspector.redact.scrub import MIN_GLOBAL_LENGTH, Stats
+from har_inspector.render_common import safe
 
 
 def render(stats: Stats, source: str, target: str) -> str:
-    lines = [f"REDACTED {source} -> {target} ({stats.entries} entries, none removed)"]
+    lines = [f"REDACTED {safe(source)} -> {safe(target)} ({stats.entries} entries, none removed)"]
     rows = [
         ("headers", stats.headers),
         ("cookies", stats.cookies),
@@ -37,9 +38,11 @@ def render(stats: Stats, source: str, target: str) -> str:
         n = len(stats.not_scanned)
         lines.append(f"NOT SCANNED: {n} bod{'ies' if n > 1 else 'y'} "
                      "(not redacted by name, may contain secrets)")
-        lines.extend(f"  #{s.entry} {s.mime_type}: {s.reason}" for s in stats.not_scanned)
-    return "\n".join(lines) + "\n"
+        lines.extend(f"  #{s.entry} {safe(s.mime_type)}: {s.reason}" for s in stats.not_scanned)
+    # Backstop, as in the reports: names and MIME types come from the HAR.
+    return safe("\n".join(lines) + "\n", keep_newlines=True)
 
 
 def _names(counter: Counter) -> str:
-    return ", ".join(f"{name} {n}" for name, n in sorted(counter.items()))
+    # Header, parameter and JSON key names come from the HAR.
+    return ", ".join(f"{safe(name)} {n}" for name, n in sorted(counter.items()))
