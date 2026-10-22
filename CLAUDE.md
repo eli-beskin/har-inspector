@@ -42,6 +42,22 @@ and produces a diagnostic report.
 - Thresholds: CORS link window ±1000 ms; a redirect chain is flagged at >= 3 server hops
   (Chrome-internal HSTS hops are labelled but not counted).
 
+## Redaction (`python -m har_inspector redact IN.har -o OUT.har [--force]`)
+- Code in `har_inspector/redact/`: `names.py` (secret header/param name rules, pinned by
+  `tests/test_redact_names.py`), `scrub.py` (works on the raw dict from
+  `parser.read_har_json`, not the lossy model), `summary.py`.
+- Pass 1 redacts by name and keeps structure: `Bearer [REDACTED]`, cookie names,
+  Set-Cookie attributes. Query and fragment params are redacted inside `request.url`,
+  `redirectURL`, `:path`, Referer, Location. JSON/form bodies are redacted by key, in
+  requests and responses.
+- Pass 2 replaces every value of 8+ chars found in pass 1 (also its URL-encoded forms) in
+  every string of the file. Shorter values are only redacted where found by name.
+- Base64 bodies: text-like ones are decoded, scrubbed and re-encoded. Binary/non-UTF-8
+  ones are left as is and reported as NOT SCANNED. Sizes (`content.size`,
+  `_transferSize`) are not adjusted.
+- Never writes over IN (normcase + realpath + samefile), writes OUT only with `--force`
+  if it exists, writes via a temp file + read-back check, and appends a note to `log.comment`.
+
 ## Tests
 - Setup (once): `py -3.15 -m venv .venv`, then
   `.venv\Scripts\python -m pip install "pytest>=8"`.

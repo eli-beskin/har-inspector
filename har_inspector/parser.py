@@ -10,7 +10,12 @@ class HarError(Exception):
     """The input is not a usable HAR file."""
 
 
-def load(path: str) -> HarFile:
+def read_har_json(path: str) -> dict:
+    """The raw HAR document, checked only for a log.entries list.
+
+    Redaction works on this raw dict rather than on the model, because the model
+    keeps only what the analyzer needs and the output must keep everything.
+    """
     try:
         with open(path, encoding="utf-8") as f:
             data = json.load(f)
@@ -24,7 +29,11 @@ def load(path: str) -> HarFile:
     log = data.get("log") if isinstance(data, dict) else None
     if not isinstance(log, dict) or not isinstance(log.get("entries"), list):
         raise HarError(f"not a HAR file (missing log.entries): {path}")
+    return data
 
+
+def load(path: str) -> HarFile:
+    log = read_har_json(path)["log"]
     creator = log.get("creator") or {}
     creator_str = " ".join(
         str(part) for part in (creator.get("name"), creator.get("version")) if part
