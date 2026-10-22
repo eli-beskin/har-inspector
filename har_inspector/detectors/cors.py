@@ -6,7 +6,7 @@ from har_inspector.model import Entry
 
 # A blocked request starts within this many ms of its preflight. Not "the next
 # entry": in real Chrome exports the blocked request is often logged *before*
-# its preflight (normal.har: PUT at .921, OPTIONS at .922).
+# its preflight (seen in a real Chrome export: PUT at .921, OPTIONS at .922).
 LINK_WINDOW_MS = 1000
 
 

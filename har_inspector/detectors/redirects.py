@@ -23,7 +23,7 @@ def target(e: Entry) -> str | None:
     """Absolute redirect target, or None if this entry is not a redirect."""
     if not 300 <= e.status < 400:
         return None
-    # redirectURL and Location are often relative (errors.har: /relative-redirect/4).
+    # redirectURL and Location are often relative (a real Chrome export: /relative-redirect/4).
     raw = e.redirect_url or e.header("Location")
     if not raw:
         return None

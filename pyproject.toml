@@ -1,12 +1,29 @@
+# setuptools 77+ is needed for the SPDX `license = "MIT"` form below.
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "har-inspector"
 version = "0.1.0"
-description = "CLI that analyzes browser HAR files and prints a diagnostic report"
+description = "CLI that turns a browser HAR file into a diagnostic report for technical support"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Ilya (Eli) Beskin" }]
 requires-python = ">=3.11"
 dependencies = []
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
+
+[project.urls]
+Homepage = "https://github.com/eli-beskin/har-inspector"
+Repository = "https://github.com/eli-beskin/har-inspector"
+Issues = "https://github.com/eli-beskin/har-inspector/issues"
+
+[tool.setuptools.packages.find]
+include = ["har_inspector*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

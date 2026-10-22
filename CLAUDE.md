@@ -20,7 +20,7 @@ and produces a diagnostic report.
 - Status 0 means the request failed without a response (blocked, aborted, CORS, network error).
 - Fields starting with `_` are Chrome-specific and may be missing in HARs from other browsers.
 - A request blocked by CORS can be logged *before* its preflight OPTIONS (1 ms earlier in
-  normal.har), so link them by time, never by "the next entry".
+  a real Chrome export), so link them by time, never by "the next entry".
 - `net::ERR_BLOCKED_BY_ORB` comes with a non-zero status (200/204/404); `net::ERR_ABORTED`
   often sits on a 200/204 that did arrive. Don't assume `_error` implies status 0.
 - HTTP/2 header names are lowercase; HTTP/1.1 ones are canonical case. Always compare
