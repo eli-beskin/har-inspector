@@ -12,7 +12,9 @@ from har_inspector.analysis import analyze
 from har_inspector.parser import HarError, load, read_har_json
 from har_inspector.redact import summary
 from har_inspector.redact.scrub import redact
-from har_inspector.report import render
+from har_inspector import report, report_md
+
+RENDERERS = {"text": report.render, "md": report_md.render}
 
 
 def _positive_int(value: str) -> int:
@@ -40,6 +42,10 @@ def main(argv: list[str] | None = None) -> int:
         "--top", type=_positive_int, default=10, metavar="N",
         help="number of slowest requests to show (default: 10)",
     )
+    parser.add_argument(
+        "--format", choices=RENDERERS, default="text",
+        help="report format: text, or md (Markdown for tickets) (default: text)",
+    )
     parser.add_argument("--version", action="version", version=__version__)
     args = parser.parse_args(argv)
 
@@ -49,7 +55,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"har-inspector: error: {exc}", file=sys.stderr)
         return 2
 
-    sys.stdout.write(render(analyze(har, top=args.top)))
+    sys.stdout.write(RENDERERS[args.format](analyze(har, top=args.top)))
     return 0
 
 

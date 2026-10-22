@@ -41,6 +41,27 @@ def test_good_input_exits_0(fixture_path, capsys):
     assert "FAILED REQUESTS" in capsys.readouterr().out
 
 
+def test_format_md(fixture_path, capsys):
+    assert main([fixture_path("failures.har"), "--format", "md"]) == 0
+    out = capsys.readouterr().out
+    assert out.startswith("# HAR Inspector: failures.har\n")
+    assert "## Failed requests" in out
+
+
+def test_format_text_is_the_default(fixture_path, capsys):
+    main([fixture_path("cors.har")])
+    default = capsys.readouterr().out
+    main([fixture_path("cors.har"), "--format", "text"])
+    assert capsys.readouterr().out == default
+    assert default.startswith("HAR Inspector - cors.har\n")
+
+
+def test_bad_format_exits_2(fixture_path):
+    with pytest.raises(SystemExit) as exc:
+        main([fixture_path("timings.har"), "--format", "html"])
+    assert exc.value.code == 2
+
+
 def test_module_entry_point_exits_2(tmp_path):
     # Covers __main__.py: sys.exit(main()) must propagate the code.
     result = subprocess.run(

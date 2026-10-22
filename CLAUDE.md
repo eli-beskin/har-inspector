@@ -41,6 +41,11 @@ and produces a diagnostic report.
   "... and N more", then the last one (the end of a redirect chain).
 - Thresholds: CORS link window ±1000 ms; a redirect chain is flagged at >= 3 server hops
   (Chrome-internal HSTS hops are labelled but not counted).
+- `--format md` (`report_md.py`, GitHub-flavored Markdown for tickets): same content as
+  the text report (`report.py`, still the default), but FINDINGS come before SUMMARY.
+  Shared helpers (truncation, sizes, evidence cap) live in `render_common.py`, so both
+  formats cut URLs and evidence the same way. URLs go in code spans; free text is
+  backslash-escaped; `|` is escaped in every table cell, code spans included.
 
 ## Redaction (`python -m har_inspector redact IN.har -o OUT.har [--force]`)
 - Code in `har_inspector/redact/`: `names.py` (secret header/param name rules, pinned by

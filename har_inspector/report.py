@@ -2,14 +2,15 @@
 
 import os
 import textwrap
-from datetime import datetime
 
 from har_inspector.analysis import Analysis
-from har_inspector.classify import status_class
 from har_inspector.model import PHASES
+from har_inspector.render_common import MAX_EVIDENCE, visible_evidence
+from har_inspector.render_common import ms as _ms
+from har_inspector.render_common import size as _size
+from har_inspector.render_common import truncate as _truncate
+from har_inspector.render_common import utc_time as _time
 
-URL_WIDTH = 80
-MAX_EVIDENCE = 5  # per finding; the rest is summarized as "... and N more"
 TEXT_WIDTH = 100
 
 
@@ -62,13 +63,8 @@ def _findings(a: Analysis) -> str:
     blocks = []
     for f in a.findings:
         lines = [_wrap(f.title, f"  {f.severity.upper():<8} ", pad)]
-        evidence = f.evidence
-        hidden = len(evidence) - MAX_EVIDENCE
-        # Keep the last item: for a redirect chain it is where the chain ends.
-        # Hiding a single line behind a "... and 1 more" line saves nothing.
-        if hidden > 1:
-            evidence = evidence[: MAX_EVIDENCE - 1] + [None] + evidence[-1:]
-        for ev in evidence:
+        hidden = len(f.evidence) - MAX_EVIDENCE
+        for ev in visible_evidence(f.evidence):
             if ev is None:
                 lines.append(f"{pad}... and {hidden} more")
                 continue
@@ -136,27 +132,3 @@ def _wrap(text: str, first: str, rest: str) -> str:
         text, TEXT_WIDTH, initial_indent=first, subsequent_indent=rest,
         break_long_words=False, break_on_hyphens=False,
     )
-
-
-def _ms(value: float | None) -> str:
-    return "-" if value is None else f"{value:.0f}"
-
-
-def _size(n: int) -> str:
-    for unit in ("B", "KB", "MB"):
-        if n < 1024 or unit == "MB":
-            return f"{n} B" if unit == "B" else f"{n:.1f} {unit}"
-        n /= 1024
-    return ""
-
-
-def _time(dt: datetime) -> str:
-    return dt.strftime("%Y-%m-%d %H:%M:%S.") + f"{dt.microsecond // 1000:03d}"
-
-
-def _truncate(text: str, width: int = URL_WIDTH) -> str:
-    # Cut the middle: host and the tail of the path are the useful parts.
-    if len(text) <= width:
-        return text
-    keep = width - 3
-    return text[: keep - keep // 3] + "..." + text[-(keep // 3):]
