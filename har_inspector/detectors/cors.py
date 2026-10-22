@@ -70,9 +70,14 @@ def link_preflights(entries: list[Entry]) -> dict[int, Entry]:
     return links
 
 
-def blocked_indices(entries: list[Entry]) -> set[int]:
-    """Entries already explained by a CORS finding (other detectors skip them)."""
-    return {req.index for req in link_preflights(entries).values()}
+def reported_indices(entries: list[Entry]) -> set[int]:
+    """Entries already reported by a CORS finding (other detectors skip them).
+
+    Taken from the findings' evidence, not just the linked blocked requests:
+    a failed preflight is evidence too, and a status-0 one carries its own
+    net::ERR_FAILED that would otherwise be reported again.
+    """
+    return {ev.index for f in detect(entries) for ev in f.evidence}
 
 
 def _is_preflight(e: Entry) -> bool:

@@ -40,3 +40,14 @@ def test_unknown_code_hint_does_not_guess(load_fixture):
     foo = next(f for f in findings if "ERR_FOO_BAR" in f.title)
     assert foo.next_step == client_errors._UNKNOWN_HINT
     assert foo.evidence[0].note == "net::ERR_FOO_BAR"
+
+
+def test_skips_every_entry_a_cors_finding_reports(load_fixture):
+    # cors.har (read off by hand): net::ERR_FAILED on #0, #2, #3, #7, #8, #10.
+    # CORS reports #0/#1, #2/#3, #9/#10 and the orphan preflight #6, so the failed
+    # preflight #2 (status 0, its own ERR_FAILED) must not show up here again.
+    # Left: #7 (PATCH 2000 ms after #6, outside the 1000 ms window) and
+    # #8 (GET, but preflight #1 asked for PUT).
+    findings = client_errors.detect(load_fixture("cors.har").entries)
+    got = [(f.title, [ev.index for ev in f.evidence]) for f in findings]
+    assert got == [("net::ERR_FAILED (2 requests): no known mapping", [7, 8])]

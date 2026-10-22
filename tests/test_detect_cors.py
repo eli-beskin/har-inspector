@@ -36,7 +36,9 @@ def test_link_respects_requested_method(load_fixture):
     links = cors.link_preflights(entries)
     # #8 GET /upload is status 0 and 9 ms from preflight #1, but #1 asked for PUT.
     assert links[1].index == 0
-    assert cors.blocked_indices(entries) == {0, 3, 10}
+    # Reported = failed preflights #1 (403), #2 (0), #6 (500), #9 (403)
+    # + linked blocked requests #0, #3, #10. Not #7: PATCH is 2000 ms after #6.
+    assert cors.reported_indices(entries) == {0, 1, 2, 3, 6, 9, 10}
 
 
 def test_next_step_names_origin(load_fixture):

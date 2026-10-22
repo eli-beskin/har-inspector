@@ -55,7 +55,7 @@ _GENERIC = "net::ERR_HTTP_RESPONSE_CODE_FAILURE"
 
 
 def detect(entries: list[Entry]) -> list[Finding]:
-    explained = cors.blocked_indices(entries)
+    explained = cors.reported_indices(entries)
     by_code: dict[str, list[Entry]] = {}
     for e in entries:
         code = e.error
